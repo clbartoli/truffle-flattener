@@ -12,8 +12,9 @@ const mkdirp = require("mkdirp");
 const Resolver = require("@resolver-engine/imports-fs").ImportsFsEngine;
 
 const IMPORT_SOLIDITY_REGEX = /^\s*import(\s+).*$/gm;
-const VERSION_SOLIDITY_REGEX = /^pragma solidity .*;$/gm;
-const EXPERIMENTAL_SOLIDITY_REGEX = /^pragma experimental .*;$/gm;
+const VERSION_SOLIDITY_REGEX = /^\s*pragma solidity .*;$/gm;
+const EXPERIMENTAL_SOLIDITY_REGEX = /^\s*pragma experimental .*;$/gm;
+const LICENSE_SOLIDITY_REGEX = /^\/\/\s*SPDX-License-Identifier:\s+(\S+)\s*$/gm;
 
 function unique(array) {
   return [...new Set(array)];
@@ -114,14 +115,16 @@ async function cleanFile(filePath) {
 
   const version = contents.match(VERSION_SOLIDITY_REGEX) || [];
   const experimentals = contents.match(EXPERIMENTAL_SOLIDITY_REGEX) || [];
+  const licenses = [...contents.matchAll(LICENSE_SOLIDITY_REGEX)];
 
   const clean = contents
     .replace(IMPORT_SOLIDITY_REGEX, "")
     .replace(VERSION_SOLIDITY_REGEX, "")
     .replace(EXPERIMENTAL_SOLIDITY_REGEX, "")
+    .replace(LICENSE_SOLIDITY_REGEX, "")
     .trim();
 
-  return [clean, version, experimentals];
+  return [clean, version, experimentals, licenses];
 }
 
 function fileNameToGlobalName(fileName, truffleRoot) {
@@ -138,11 +141,16 @@ function fileNameToGlobalName(fileName, truffleRoot) {
 async function printConcatenation(files, log) {
   let cleanFiles = await Promise.all(files.map(cleanFile));
 
-  let [output, versions, experimentals] = cleanFiles.reduce(([output_acc, versions_acc, experimentals_acc], [output, versions, experimentals], i) =>[
+  let [output, versions, experimentals, licenses] = cleanFiles.reduce(([output_acc, versions_acc, experimentals_acc, licenses_acc], [output, versions, experimentals, licenses], i) =>[
     `${output_acc}\n// File: ${files[i]}\n${output}`,
     [...versions_acc, ...versions],
-    [...experimentals_acc, ...experimentals]
-  ], ["", [], []])
+    [...experimentals_acc, ...experimentals],
+    [...licenses_acc, ...licenses]
+  ], ["", [], [], []])
+
+  if (licenses.length > 0) {
+    log(`// SPDX-License-Identifier: ${unique(licenses.map(([_, license]) => license)).join(" AND ")}`);
+  }
 
   if (versions.length > 0) {
     log(versions[0]);
